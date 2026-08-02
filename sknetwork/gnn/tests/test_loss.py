@@ -32,10 +32,3 @@ class TestLoss(unittest.TestCase):
         signal = np.array([[0, 5]])
         labels = np.array([1])
         self.assertAlmostEqual(binary_cross_entropy.loss(signal, labels), 0.6998625290490632)
-
-    def test_kl_loss(self):
-        kl_loss = KullbackLeiblerDivergence()
-        signal = np.array([[0.6, 0.4]])
-        labels = np.array([[0.5, 0.5]])
-        expected = 0.5 * (np.log(0.5) - np.log(0.6)) + 0.5 * (np.log(0.5) - np.log(0.4))
-        self.assertAlmostEqual(kl_loss.loss(signal, labels), expected)

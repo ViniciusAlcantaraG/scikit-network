@@ -3,22 +3,23 @@ from typing import Union
 
 import numpy as np
 from scipy import sparse
+from scipy.optimize import curve_fit
+from scipy.spatial.distance import pdist
 
 from sknetwork.embedding.base import BaseEmbedding
-from sknetwork.linalg import LanczosEig, Laplacian, Normalizer, normalize
-from sknetwork.utils.check import check_format, check_adjacency_vector, check_nonnegative, check_n_components
+from sknetwork.linalg import normalize
 from sknetwork.utils.format import get_adjacency
 from sknetwork.ranking import PageRank
 from sknetwork.gnn.optimizer import ADAM
 from sklearn.utils.validation import check_random_state
+from sknetwork.embedding import Spectral
 
 class UGAP(BaseEmbedding):
     r"""Future documentation
     Describe purpose, steps, and parameters
     """
-    def __init__(self, n_components: int = 2, n_neighbors: int = 15, damping_factor: float = 0.85, ppr_n_iter: int = 10, n_epochs: int = 1000,
-    random_state: int = 42, theta: float = 0.5, lr: float = 1.0, momentum: float = 0.5, final_momentum: float = 0.8,
-    momentum_switch_epoch: int = 250, exaggeration: float = 12.0, exaggeration_epochs: int = 250):
+    def __init__(self, n_components: int = 2, n_neighbors: int = 15, min_dist: float = 0.1, spread: float = 1.0, damping_factor: float = 0.85, 
+                 ppr_n_iter: int = 10, n_epochs: int = 1000, negative_sampling_rate: int = 5, gamma: float = 1.0, random_state: int = 42, lr: float = 0.8):
         
         super(UGAP, self).__init__()
 
@@ -28,23 +29,23 @@ class UGAP(BaseEmbedding):
         self.ppr_n_iter = ppr_n_iter 
         self.n_epochs = n_epochs
         self.random_state = random_state
-        self.theta = theta
+        self.min_dist = min_dist
+        self.spread = spread
         self.embedding_ = None
+        self.negative_sampling_rate = negative_sampling_rate
+        self.gamma = gamma
+        self.epochs_per_sample = None
         self.lr = lr
-        self.momentum = momentum
-        self.final_momentum = final_momentum
-        self.momentum_switch_epoch = momentum_switch_epoch
-        self.exaggeration = exaggeration
-        self.exaggeration_epochs = exaggeration_epochs
 
+    def loss(self, W, Q, a, b, eps):
+
+        return 
     def fit(self, input_matrix: Union[sparse.csr_matrix, np.ndarray]) -> 'UGAP':
 
         rng = check_random_state(self.random_state)
-
-        # --------------------------------------------------
-        # Step 1 — Compute PPR matrix
-        # --------------------------------------------------
         adjacency, _ = get_adjacency(input_matrix)
+
+        # PPR matrix
         n = adjacency.shape[0]
         pagerank = PageRank(damping_factor=self.damping_factor, n_iter=self.ppr_n_iter)
         total_scores = []
@@ -57,6 +58,7 @@ class UGAP(BaseEmbedding):
         W = np.array(total_scores)
         np.fill_diagonal(W, 0)
 
+        # top-k PPR neighbours
         rows = []
         cols = []
         vals = []
@@ -105,92 +107,56 @@ class UGAP(BaseEmbedding):
             axis=1
         )
 
-        #
-        # Convert to t-SNE-style probabilities
-        #
 
-        P = graph.toarray()
+        # low-dimension
+        spectral = Spectral(self.n_components)
+        low_dim = spectral.fit_transform(adjacency)
+        low_dists = pdist(low_dim, metric='euclidean')
 
-        P = (P + P.T) / 2
+        xv = np.linspace(0, self.spread * 3, 500)
+        yv = np.zeros(xv.shape)
+        yv[xv < self.min_dist] = 1.0
+        yv[xv >= self.min_dist] = np.exp(-(xv[xv >= self.min_dist] - self.min_dist)/self.spread)
 
-        np.fill_diagonal(P, 0)
+        def curve(x, a, b):
+            return 1.0 / (1.0 + a * x ** (2 * b))
 
-        P /= P.sum()
+        params, _ = curve_fit(curve, xv, yv)
+        a = params[0] 
+        b = params[1]
 
-        eps = 1e-12
+        # edge sampling rate
+        graph = graph.tocoo()
+        graph.sum_duplicates()
+        graph.eliminate_zeros()
 
-        _lr = self.lr if self.lr is not None else 1.0
+        weights = graph.data
+        self.epochs_per_sample = np.full(weights.shape[0], -1.0, dtype=np.float64)
+        n_samples = self.n_epochs * (weights / weights.max())
+        positive = n_samples > 0
+        self.epochs_per_sample[positive] = float(self.n_epochs) / np.float64(n_samples[positive])
+        epoch_of_next_sample = self.epochs_per_sample.copy()
 
-        #
-        # Small random init
-        #
-        Y = rng.normal(
-            loc=0.0,
-            scale=1e-4,
-            size=(n, self.n_components)
-        )
-
-        embedding_layer = SimpleNamespace(
-            weight=Y,
-            bias=np.zeros((1, self.n_components)),
-            use_bias=False
-        )
-        optimizer_state = SimpleNamespace(
-            layers=[embedding_layer],
-            derivative_weight=[np.zeros_like(Y)],
-            derivative_bias=[np.zeros((1, self.n_components))]
-        )
-
-        optimizer = ADAM(
-            learning_rate=_lr
-        )
-
+        # SGD
         for epoch in range(self.n_epochs):
+            for idx, (i, j, w) in enumerate(zip(graph.row, graph.col, graph.data)):
 
-            Y = optimizer_state.layers[0].weight
+                if epoch_of_next_sample[idx] > epoch:
+                    continue
+                   
+                d = pow(np.linalg.norm(low_dim[i]-low_dim[j]), 2)
+                grad = -2*a*b*pow(d, b-1)/(1+a*pow(d, b)) * (low_dim[i] - low_dim[j])
+                low_dim[i] = low_dim[i] - self.lr * grad          
+                low_dim[j] = low_dim[j] + self.lr * grad          
+                epoch_of_next_sample[idx] += self.epochs_per_sample[idx]
 
-            #
-            # Pairwise squared distances
-            #
-            diff = Y[:, None, :] - Y[None, :, :]
-            dist_sq = np.sum(diff ** 2, axis=2)
+                for _ in range(self.negative_sampling_rate):
+                    j = rng.randint(0, n)
+                    d = pow(np.linalg.norm(low_dim[i] - low_dim[j]), 2)
+                    grad = 2*a*b*pow(d, b-1)/(1+a*pow(d, b)) * (low_dim[i] - low_dim[j])
+                    low_dim[i] = low_dim[i] - self.lr * grad          
+                    low_dim[j] = low_dim[j] + self.lr * grad
 
-            #
-            # Student-t kernel
-            #
-            Q_num = 1.0 / (1.0 + dist_sq)
-
-            np.fill_diagonal(Q_num, 0.0)
-
-            #
-            # Global normalization
-            #
-            Q = Q_num / (Q_num.sum() + eps)
-
-            #
-            # KL(P||Q)
-            #
-            loss = np.sum(
-                P * (
-                    np.log(P + eps)
-                    - np.log(Q + eps)
-                )
-            )
-
-            grad = 4.0 * np.sum(
-                ((P - Q) * Q_num)[:, :, None] * diff,
-                axis=1
-            )
-
-            optimizer_state.derivative_weight[0] = grad
-            optimizer_state.derivative_bias[0] = np.zeros((1, self.n_components))
-
-            optimizer.step(optimizer_state)
-
-            Y = optimizer_state.layers[0].weight
-
-            if epoch % 100 == 0:
-                print(epoch, float(loss))
-
-        self.embedding_ = Y
-        return self 
+        self.embedding_ = low_dim
+        return self
+        
