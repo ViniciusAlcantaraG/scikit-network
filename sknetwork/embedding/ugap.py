@@ -10,7 +10,7 @@ from sknetwork.linalg import normalize
 from sknetwork.utils.format import get_adjacency
 from sknetwork.ranking import PageRank
 from sknetwork.embedding import Spectral
-from sgd import sgd
+from sknetwork.embedding.sgd import sgd
 
 class UGAP(BaseEmbedding):
     r"""Future documentation
@@ -128,16 +128,23 @@ class UGAP(BaseEmbedding):
         n_samples = self.n_epochs * (weights / weights.max())
         positive = n_samples > 0
         self.epochs_per_sample[positive] = float(self.n_epochs) / np.float64(n_samples[positive])
-        epoch_of_next_sample = self.epochs_per_sample.copy()
 
+        bucket = [[] for _ in range(self.n_epochs)]
+        for i in range(weights.shape[0]):
+            if self.epochs_per_sample[i] > 0:
+                for e in range(int(self.n_epochs * 1.0 / self.epochs_per_sample[i])):
+                    bucket[e].append(i)
+        max_bucket_size = max(len(b) for b in bucket)
+        bucket = np.full((self.n_epochs, max_bucket_size), -1, dtype=np.int32)
+
+        for e, entries in enumerate(bucket):
+            if len(entries) > 0:
+                bucket[e, :len(entries)] = np.array(entries, dtype=np.int32)
         # SGD
 
-        graph.row.astype(np.int32)
-        graph.col.astype(np.int32)
-        graph.data.astype(np.float32)
-        self.embedding_ = sgd(self.n_epochs, n, graph.row, graph.col, graph.data, 
+        self.embedding_ = sgd(self.n_components, self.n_epochs, n, graph.row, graph.col, graph.data, 
                             low_dim, a, b, self.lr, self.negative_sampling_rate,
-                            self.epochs_per_sample, epoch_of_next_sample)
+                            bucket)
 
         return self
         

@@ -1,26 +1,28 @@
 cimport cython
 from libc.stdlib cimport rand
+from libc.math cimport pow
+import numpy as np
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 
-cpdef sgd(int n_components, int n_epochs, int n, int[:] row, int[:] col, float[:] data, float[:,:] low_dim,
-            float a, float b, float lr, int negative_sampling_rate,
-            double[:] epochs_per_sample, double[:] epoch_of_next_sample):
+cpdef sgd(int n_components, int n_epochs, int n, int[:] row, int[:] col, double[:] data, double[:,:] low_dim,
+            float a, float b, float lr, int negative_sampling_rate, int[:,:] bucket):
 
-        
+
+    cdef int epoch, pos, start, end, idx, i, j, k
+    cdef double d, temp, coef, grad
+    cdef double[::1] delta = np.empty(n_components, dtype=np.float64)
+
         for epoch in range(n_epochs):
-            Pyssize_t idx
-            int i, j
-            for idx in range(row.shape[0]):
-
-                if epoch_of_next_sample[idx] > epoch:
-                    continue
+            for pos in range(bucket.shape[1]):
+                idx = bucket[epoch, pos]
+                if idx < 0:
+                    continue  
                 
                 i = row[idx]
                 j = col[idx]
                 d = 0.0
-                delta = [0.0] * n_components
                 for k in range(n_components):
                     delta[k] = low_dim[i,k] - low_dim[j,k]
                     d += delta[k] * delta[k]
