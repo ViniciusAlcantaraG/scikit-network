@@ -1,26 +1,52 @@
 cimport cython
+from libc.stdlib cimport rand
 
-cpdef sgd(int n_epochs, int n, int[:] row, int[:] col, float[:] data, float[:] low_dim,
+@cython.boundscheck(False)
+@cython.wraparound(False)
+
+cpdef sgd(int n_components, int n_epochs, int n, int[:] row, int[:] col, float[:] data, float[:,:] low_dim,
             float a, float b, float lr, int negative_sampling_rate,
-            int[:] epochs_per_sample, int[:] epoch_of_next_sample):
+            double[:] epochs_per_sample, double[:] epoch_of_next_sample):
 
+        
         for epoch in range(n_epochs):
-        for idx, (i, j, w) in enumerate(zip(row, col, data)):
+            Pyssize_t idx
+            int i, j
+            for idx in range(row.shape[0]):
 
-            if epoch_of_next_sample[idx] > epoch:
-                continue
+                if epoch_of_next_sample[idx] > epoch:
+                    continue
                 
-            d = pow(np.linalg.norm(low_dim[i]-low_dim[j]), 2)
-            grad = -2*a*b*pow(d, b-1)/(1+a*pow(d, b)) * (low_dim[i] - low_dim[j])
-            low_dim[i] = low_dim[i] - lr * grad          
-            low_dim[j] = low_dim[j] + lr * grad          
-            epoch_of_next_sample[idx] += epochs_per_sample[idx]
+                i = row[idx]
+                j = col[idx]
+                d = 0.0
+                delta = [0.0] * n_components
+                for k in range(n_components):
+                    delta[k] = low_dim[i,k] - low_dim[j,k]
+                    d += delta[k] * delta[k]
 
-            for _ in range(negative_sampling_rate):
-                j = rng.randint(0, n)
-                d = pow(np.linalg.norm(low_dim[i] - low_dim[j]), 2)
-                grad = 2*a*b*pow(d, b-1)/(1+a*pow(d, b)) * (low_dim[i] - low_dim[j])
-                low_dim[i] = low_dim[i] - lr * grad          
-                low_dim[j] = low_dim[j] + lr * grad
+                temp = pow(d + 1e-6, b - 1)
+                coef = -2.0*a*b*temp/ (1.0 + a * d * temp)
+
+                for k in range(n_components):
+                    grad = coef * delta[k]
+                    low_dim[i,k] -= lr * grad
+                    low_dim[j,k] += lr * grad
+
+                for _ in range(negative_sampling_rate):
+                    j = rand() % n
+                    d = 0.0
+                    delta = [0.0] * n_components
+                    for k in range(n_components):
+                        delta[k] = low_dim[i,k] - low_dim[j,k]
+                        d += delta[k] * delta[k]
+
+                    temp = pow(d + 1e-6, b - 1)
+                    coef = 2*a*b*temp/(1.0 + a * d * temp)
+
+                    for k in range(n_components):
+                        grad = coef * delta[k]
+                        low_dim[i,k] -= lr * grad
+                        low_dim[j,k] += lr * grad
 
     return low_dim

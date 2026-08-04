@@ -9,8 +9,8 @@ from sknetwork.embedding.base import BaseEmbedding
 from sknetwork.linalg import normalize
 from sknetwork.utils.format import get_adjacency
 from sknetwork.ranking import PageRank
-from sklearn.utils.validation import check_random_state
 from sknetwork.embedding import Spectral
+from sgd import sgd
 
 class UGAP(BaseEmbedding):
     r"""Future documentation
@@ -37,7 +37,6 @@ class UGAP(BaseEmbedding):
 
     def fit(self, input_matrix: Union[sparse.csr_matrix, np.ndarray]) -> 'UGAP':
 
-        rng = check_random_state(self.random_state)
         adjacency, _ = get_adjacency(input_matrix)
 
         # PPR matrix
@@ -132,25 +131,13 @@ class UGAP(BaseEmbedding):
         epoch_of_next_sample = self.epochs_per_sample.copy()
 
         # SGD
-        for epoch in range(self.n_epochs):
-            for idx, (i, j, w) in enumerate(zip(graph.row, graph.col, graph.data)):
 
-                if epoch_of_next_sample[idx] > epoch:
-                    continue
-                   
-                d = pow(np.linalg.norm(low_dim[i]-low_dim[j]), 2)
-                grad = -2*a*b*pow(d, b-1)/(1+a*pow(d, b)) * (low_dim[i] - low_dim[j])
-                low_dim[i] = low_dim[i] - self.lr * grad          
-                low_dim[j] = low_dim[j] + self.lr * grad          
-                epoch_of_next_sample[idx] += self.epochs_per_sample[idx]
+        graph.row.astype(np.int32)
+        graph.col.astype(np.int32)
+        graph.data.astype(np.float32)
+        self.embedding_ = sgd(self.n_epochs, n, graph.row, graph.col, graph.data, 
+                            low_dim, a, b, self.lr, self.negative_sampling_rate,
+                            self.epochs_per_sample, epoch_of_next_sample)
 
-                for _ in range(self.negative_sampling_rate):
-                    j = rng.randint(0, n)
-                    d = pow(np.linalg.norm(low_dim[i] - low_dim[j]), 2)
-                    grad = 2*a*b*pow(d, b-1)/(1+a*pow(d, b)) * (low_dim[i] - low_dim[j])
-                    low_dim[i] = low_dim[i] - self.lr * grad          
-                    low_dim[j] = low_dim[j] + self.lr * grad
-
-        self.embedding_ = low_dim
         return self
         
