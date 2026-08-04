@@ -4,13 +4,11 @@ from typing import Union
 import numpy as np
 from scipy import sparse
 from scipy.optimize import curve_fit
-from scipy.spatial.distance import pdist
 
 from sknetwork.embedding.base import BaseEmbedding
 from sknetwork.linalg import normalize
 from sknetwork.utils.format import get_adjacency
 from sknetwork.ranking import PageRank
-from sknetwork.gnn.optimizer import ADAM
 from sklearn.utils.validation import check_random_state
 from sknetwork.embedding import Spectral
 
@@ -37,9 +35,6 @@ class UGAP(BaseEmbedding):
         self.epochs_per_sample = None
         self.lr = lr
 
-    def loss(self, W, Q, a, b, eps):
-
-        return 
     def fit(self, input_matrix: Union[sparse.csr_matrix, np.ndarray]) -> 'UGAP':
 
         rng = check_random_state(self.random_state)
@@ -111,7 +106,6 @@ class UGAP(BaseEmbedding):
         # low-dimension
         spectral = Spectral(self.n_components)
         low_dim = spectral.fit_transform(adjacency)
-        low_dists = pdist(low_dim, metric='euclidean')
 
         xv = np.linspace(0, self.spread * 3, 500)
         yv = np.zeros(xv.shape)
