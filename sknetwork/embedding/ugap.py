@@ -58,6 +58,7 @@ class UGAP(BaseEmbedding):
         vals = []
 
         eps = 1e-9
+        self.n_neighbors = min(self.n_neighbors, n - 1)
 
         for i in range(n):
 
@@ -67,6 +68,9 @@ class UGAP(BaseEmbedding):
             )[-(self.n_neighbors + 1):]
 
             idx = idx[W[i, idx] > 0]
+
+            if len(idx) == 0:
+                continue
 
             dists = -np.log(
                 W[i, idx] + eps
@@ -95,12 +99,7 @@ class UGAP(BaseEmbedding):
 
         graph = graph + graph.T - prod
 
-        graph = normalize(
-            graph.tocsr(),
-            norm="l1",
-            axis=1
-        )
-
+        graph = normalize(graph.tocsr(), p=1)
 
         # low-dimension
         spectral = Spectral(self.n_components)
@@ -129,22 +128,14 @@ class UGAP(BaseEmbedding):
         positive = n_samples > 0
         self.epochs_per_sample[positive] = float(self.n_epochs) / np.float64(n_samples[positive])
 
-        bucket = [[] for _ in range(self.n_epochs)]
-        for i in range(weights.shape[0]):
-            if self.epochs_per_sample[i] > 0:
-                for e in range(int(self.n_epochs * 1.0 / self.epochs_per_sample[i])):
-                    bucket[e].append(i)
-        max_bucket_size = max(len(b) for b in bucket)
-        bucket = np.full((self.n_epochs, max_bucket_size), -1, dtype=np.int32)
+        # edge scheduler
+        self.epoch_of_next_sample = np.copy(self.epochs_per_sample)
 
-        for e, entries in enumerate(bucket):
-            if len(entries) > 0:
-                bucket[e, :len(entries)] = np.array(entries, dtype=np.int32)
         # SGD
-
-        self.embedding_ = sgd(self.n_components, self.n_epochs, n, graph.row, graph.col, graph.data, 
+        
+        self.embedding_ = sgd(self.n_components, self.n_epochs, n, graph.row, graph.col, 
                             low_dim, a, b, self.lr, self.negative_sampling_rate,
-                            bucket)
+                            self.epochs_per_sample, self.epoch_of_next_sample)
 
         return self
         
