@@ -108,7 +108,7 @@ class UGAP(BaseEmbedding):
 
         # low-dimension
         spectral = Spectral(self.n_components)
-        low_dim = spectral.fit_transform(adjacency)
+        low_dim = spectral.fit_transform(graph)
 
         xv = np.linspace(0, self.spread * 3, 500)
         yv = np.zeros(xv.shape)
