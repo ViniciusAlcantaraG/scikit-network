@@ -11,6 +11,7 @@ from scipy import sparse
 from scipy.sparse.linalg import eigs, LinearOperator, bicgstab
 
 from sknetwork.linalg.diteration import diffusion
+from sknetwork.linalg.edge_push import edge_push_pagerank
 from sknetwork.linalg.push import push_pagerank
 from sknetwork.linalg.normalizer import normalize
 from sknetwork.linalg.polynome import Polynome
@@ -71,9 +72,11 @@ def get_pagerank(adjacency: Union[sparse.csr_matrix, LinearOperator], seeds: np.
     n_iter : int
         Number of iterations for some of the solvers such as ``'piteration'`` or ``'diteration'``.
     tol : float
-        Tolerance for the convergence of some solvers such as ``'bicgstab'`` or ``'lanczos'`` or ``'push'``.
+        Tolerance for the convergence of some solvers such as ``'bicgstab'``, ``'lanczos'``, ``'push'`` or
+        ``'edge_push'``.
     solver : :obj:`str`
-        Which solver to use: ``'piteration'``, ``'diteration'``, ``'bicgstab'``, ``'lanczos'``, ``̀'RH'``, ``'push'``.
+        Which solver to use: ``'piteration'``, ``'diteration'``, ``'bicgstab'``, ``'lanczos'``, ``̀'RH'``, ``'push'``
+        or ``'edge_push'``. EdgePush requires a symmetric adjacency matrix.
 
     Returns
     -------
@@ -106,6 +109,10 @@ def get_pagerank(adjacency: Union[sparse.csr_matrix, LinearOperator], seeds: np.
     * Whang, J. , Lenharth, A. , Dhillon, I. , & Pingali, K. . (2015).
       `Scalable Data-Driven PageRank: Algorithms, System Issues, and Lessons Learned`. 9233, 438-450.
       <https://www.cs.utexas.edu/users/inderjit/public_papers/scalable_pagerank_europar15.pdf>
+    * Wang, H., Wei, Z., Gan, J., Yuan, Y., Du, X., & Wen, J. R. (2022).
+      `Edge-based Local Push for Personalized PageRank.
+      <https://www.vldb.org/pvldb/vol15/p1376-wang.pdf>`_
+      Proceedings of the VLDB Endowment, 15(7), 1376-1388.
     """
     n = adjacency.shape[0]
 
@@ -123,6 +130,11 @@ def get_pagerank(adjacency: Union[sparse.csr_matrix, LinearOperator], seeds: np.
         scores = np.zeros(n, dtype=np.float32)
         fluid = (1 - damping_factor) * seeds.astype(np.float32)
         diffusion(indptr, indices, data, scores, fluid, damping_factor, n_iter, tol)
+
+    elif solver == 'edge_push':
+        if not isinstance(adjacency, sparse.csr_matrix):
+            raise ValueError('EdgePush is only compatible with CSR adjacency matrices.')
+        scores = edge_push_pagerank(adjacency, seeds, damping_factor, tol)
 
     elif solver == 'push':
         n = adjacency.shape[0]

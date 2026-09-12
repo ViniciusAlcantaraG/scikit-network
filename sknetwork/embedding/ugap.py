@@ -16,8 +16,10 @@ class UGAP(BaseEmbedding):
     r"""Future documentation
     Describe purpose, steps, and parameters
     """
-    def __init__(self, n_components: int = 2, n_neighbors: int = 15, min_dist: float = 0.1, spread: float = 1.0, damping_factor: float = 0.85, 
-                 ppr_n_iter: int = 10, n_epochs: int = 1000, negative_sampling_rate: int = 5, gamma: float = 1.0, random_state: int = 42, lr: float = 0.8):
+    def __init__(self, n_components: int = 2, n_neighbors: int = 15, min_dist: float = 0.1, spread: float = 1.0,
+                 damping_factor: float = 0.85, ppr_n_iter: int = 10, n_epochs: int = 1000,
+                 negative_sampling_rate: int = 5, gamma: float = 1.0, random_state: int = 42, lr: float = 0.8,
+                 ppr_solver: str = 'piteration', ppr_tol: float = 1e-6):
         
         super(UGAP, self).__init__()
 
@@ -25,6 +27,8 @@ class UGAP(BaseEmbedding):
         self.n_neighbors = n_neighbors
         self.damping_factor = damping_factor 
         self.ppr_n_iter = ppr_n_iter 
+        self.ppr_solver = ppr_solver
+        self.ppr_tol = ppr_tol
         self.n_epochs = n_epochs
         self.random_state = random_state
         self.min_dist = min_dist
@@ -41,7 +45,8 @@ class UGAP(BaseEmbedding):
 
         # PPR matrix
         n = adjacency.shape[0]
-        pagerank = PageRank(damping_factor=self.damping_factor, n_iter=self.ppr_n_iter)
+        pagerank = PageRank(damping_factor=self.damping_factor, solver=self.ppr_solver,
+                            n_iter=self.ppr_n_iter, tol=self.ppr_tol)
         total_scores = []
         for i in range(n):
             weights_local = np.zeros(n)
@@ -138,4 +143,3 @@ class UGAP(BaseEmbedding):
                             self.epochs_per_sample, self.epoch_of_next_sample)
 
         return self
-        

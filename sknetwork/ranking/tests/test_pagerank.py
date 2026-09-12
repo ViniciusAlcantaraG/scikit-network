@@ -31,6 +31,14 @@ class TestPageRank(unittest.TestCase):
         with self.assertRaises(ValueError):
             PageRank(solver='toto').fit_predict(self.adjacency)
 
+    def test_edge_push(self):
+        adjacency = test_graph()
+        scores = PageRank(solver='edge_push', tol=1e-2).fit_predict(adjacency, weights={0: 1})
+        self.assertAlmostEqual(scores.sum(), 1)
+
+        with self.assertRaises(ValueError):
+            PageRank(solver='edge_push').fit_predict(self.adjacency)
+
     def test_seeding(self):
         pagerank = PageRank()
         seeds_array = np.zeros(self.n)
