@@ -47,7 +47,6 @@ cpdef sgd(int n_components, int n_epochs, int n, int[:] row, int[:] col,
                     for k in range(n_components):
                         grad = coef * delta[k]
                         low_dim[i,k] -= lr * alpha * grad
-                        low_dim[j,k] += lr * alpha * grad
 
                 epoch_of_next_sample[idx] += epochs_per_sample[idx]
 
