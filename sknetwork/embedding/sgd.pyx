@@ -1,5 +1,5 @@
 cimport cython
-from libc.stdlib cimport rand
+from libc.stdlib cimport rand, srand
 from libc.math cimport pow, fmax
 import numpy as np
 
@@ -8,8 +8,10 @@ import numpy as np
 
 cpdef sgd(int n_components, int n_epochs, int n, int[:] row, int[:] col,
             double[:,:] low_dim, float a, float b, float lr,
-            int negative_sampling_rate, double[:] epochs_per_sample, double[:] epoch_of_next_sample):
+            int negative_sampling_rate, double[:] epochs_per_sample, double[:] epoch_of_next_sample,
+            unsigned int seed=0):
 
+    srand(seed)
     cdef int num_samples = epochs_per_sample.shape[0]
     cdef int epoch, idx, i, j, k, n_neg_samples
     cdef double alpha, temp, coef, grad, d
