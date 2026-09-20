@@ -1,6 +1,5 @@
 """Module of linear algebra."""
 from sknetwork.linalg.basics import safe_sparse_dot
-from sknetwork.linalg.edge_push import edge_push
 from sknetwork.linalg.eig_solver import EigSolver, LanczosEig
 from sknetwork.linalg.laplacian import get_laplacian
 from sknetwork.linalg.normalizer import diagonal_pseudo_inverse, get_norms, normalize

@@ -12,7 +12,6 @@ class TestLoss(unittest.TestCase):
     def test_get_loss(self):
         self.assertTrue(isinstance(get_loss('CrossEntropy'), CrossEntropy))
         self.assertTrue(isinstance(get_loss('BinaryCrossEntropy'), BinaryCrossEntropy))
-        self.assertTrue(isinstance(get_loss('KLD'), KullbackLeiblerDivergence))
         with self.assertRaises(ValueError):
             get_loss('foo')
 

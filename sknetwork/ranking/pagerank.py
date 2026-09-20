@@ -33,7 +33,6 @@ class PageRank(BaseRanking):
         * ``'bicgstab'``, use Biconjugate Gradient Stabilized method for a given tolerance.
         * ``'RH'``, use a Ruffini-Horner polynomial evaluation.
         * ``'push'``, use push-based algorithm for a given tolerance.
-        * ``'edge_push'``, use edge-based local push for a symmetric weighted graph.
     n_iter : int
         Number of iterations for some solvers.
     tol : float

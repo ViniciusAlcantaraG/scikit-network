@@ -20,13 +20,11 @@ class PageRankClassifier(RankClassifier):
     damping_factor: float
         Probability to continue the random walk.
     solver : str
-        Which solver to use: ``'piteration'``, ``'diteration'``, ``'bicgstab'``, ``'lanczos'``, ``'RH'``, ``'push'``
-        or ``'edge_push'``. EdgePush requires a symmetric adjacency matrix.
+        Which solver to use: ``'piteration'``, ``'diteration'``, ``'bicgstab'``, ``'lanczos'``, ``'RH'`` or ``'push'``.
     n_iter : int
         Number of iterations for some solvers such as ``'piteration'`` or ``'diteration'``.
     tol : float
-        Tolerance for solvers such as ``'bicgstab'``, ``'lanczos'``, ``'push'`` and ``'edge_push'``.
-        It must be positive when using ``'edge_push'``.
+        Tolerance for solvers such as ``'bicgstab'``, ``'lanczos'`` or ``'push'``.
 
     Attributes
     ----------
