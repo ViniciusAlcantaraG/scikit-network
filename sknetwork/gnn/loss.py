@@ -153,6 +153,7 @@ class BinaryCrossEntropy(BaseLoss, Sigmoid):
 
         return gradient
 
+
 def get_loss(loss: Union[BaseLoss, str] = 'CrossEntropyLoss') -> BaseLoss:
     """Instantiate loss function according to parameters.
 

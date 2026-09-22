@@ -20,11 +20,11 @@ class PageRankClassifier(RankClassifier):
     damping_factor: float
         Probability to continue the random walk.
     solver : str
-        Which solver to use: ``'piteration'``, ``'diteration'``, ``'bicgstab'``, ``'lanczos'``, ``'RH'`` or ``'push'``.
+        Which solver to use: 'piteration', 'diteration', 'bicgstab', 'lanczos'.
     n_iter : int
         Number of iterations for some solvers such as ``'piteration'`` or ``'diteration'``.
     tol : float
-        Tolerance for solvers such as ``'bicgstab'``, ``'lanczos'`` or ``'push'``.
+        Tolerance for the convergence of some solvers such as ``'bicgstab'`` or ``'lanczos'``.
 
     Attributes
     ----------
