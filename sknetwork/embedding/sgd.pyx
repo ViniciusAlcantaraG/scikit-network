@@ -11,6 +11,8 @@ cpdef sgd(int n_components, int n_epochs, int n, int[:] row, int[:] col,
             int negative_sampling_rate, double[:] epochs_per_sample, double[:] epoch_of_next_sample,
             unsigned int seed=0, float gamma=1.0):
 
+    if low_dim.shape[0] != n or low_dim.shape[1] != n_components:
+        raise ValueError('Embedding shape must match n and n_components.')
     srand(seed)
     cdef int num_samples = epochs_per_sample.shape[0]
     cdef int epoch, idx, i, j, k

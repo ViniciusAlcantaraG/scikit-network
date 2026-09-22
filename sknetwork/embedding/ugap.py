@@ -1,5 +1,5 @@
 import os
-from typing import Optional, Union
+from typing import Union
 from multiprocessing import Pool
 
 import numpy as np
@@ -8,7 +8,6 @@ from scipy.optimize import curve_fit
 
 from sknetwork.embedding.base import BaseEmbedding
 from sknetwork.linalg import normalize
-from sknetwork.utils.check import check_n_jobs
 from sknetwork.utils.format import get_adjacency
 from sknetwork.ranking import PageRank
 from sknetwork.embedding.spectral import Spectral
@@ -24,7 +23,7 @@ def _piteration_scores(transition_t: sparse.csr_matrix, restart_scale: np.ndarra
 
     Replicates the ``'piteration'`` branch of ``get_pagerank`` while reusing the
     operator built once per graph instead of once per source. ``restart_scale``
-    holds ``1 - damping_factor`` on dangling nodes and ``1`` elsewhere, so that
+    holds ``1`` on dangling nodes and ``1 - damping_factor`` elsewhere, so that
     ``b = restart_scale * seeds`` matches ``RandomSurferOperator.b``.
     """
     n = transition_t.shape[0]
@@ -36,7 +35,6 @@ def _piteration_scores(transition_t: sparse.csr_matrix, restart_scale: np.ndarra
         updated = transition_t.dot(scores) + base * scores.sum()
         updated /= updated.sum()
         if np.linalg.norm(scores - updated, ord=1) < tol:
-            scores = updated
             break
         scores = updated
     return scores / scores.sum()
@@ -138,7 +136,8 @@ class UGAP(BaseEmbedding):
     Parameters
     ----------
     n_components : int
-        Dimension of the embedding space.
+        Dimension of the embedding space. Seeded random initialization is used
+        when the graph has too few nodes for spectral initialization.
     n_neighbors : int
         Maximum number of personalized PageRank neighbors per node.
     min_dist : float
@@ -159,12 +158,27 @@ class UGAP(BaseEmbedding):
         Weighting applied to negative samples (repulsion strength) in the optimization objective.
         A value of 0 disables repulsion entirely.
     random_state : int
-        Seed for reproducible optimization.
+        Seed for reproducible initialization and optimization.
     lr : float
         Initial learning rate for stochastic optimization.
     n_jobs : int, optional
         Number of processes for the per-node PageRank solves. ``-1`` uses all CPUs. Small graphs (fewer
         than 500 nodes) always run serially.
+
+    Attributes
+    ----------
+    embedding_ : np.ndarray, shape = (n_nodes, n_components)
+        Embedding of the nodes.
+
+    Example
+    -------
+    >>> from sknetwork.embedding import UGAP
+    >>> from sknetwork.data import karate_club
+    >>> ugap = UGAP(n_components=2, random_state=42)
+    >>> adjacency = karate_club()
+    >>> embedding = ugap.fit_transform(adjacency)
+    >>> embedding.shape
+    (34, 2)
     """
     def __init__(self, n_components: int = 2, n_neighbors: int = 15, min_dist: float = 0.1, spread: float = 1.0,
                  damping_factor: float = 0.7, ppr_n_iter: int = 3, n_epochs: int = 1000,
@@ -212,7 +226,7 @@ class UGAP(BaseEmbedding):
         self.damping_factor = damping_factor 
         self.ppr_n_iter = ppr_n_iter
         self.ppr_tol = ppr_tol
-        self.n_jobs = check_n_jobs(n_jobs)
+        self.n_jobs = n_jobs
         self.n_epochs = n_epochs
         self.random_state = random_state
         self.min_dist = min_dist
@@ -246,9 +260,15 @@ class UGAP(BaseEmbedding):
             self.embedding_ = np.zeros((n, self.n_components))
             return self
 
-        # low-dimension
-        spectral = Spectral(self.n_components)
-        low_dim = np.asarray(spectral.fit_transform(graph))
+        seed = int(self.random_state) % (2 ** 32) if isinstance(
+            self.random_state, (int, np.integer)) else 0
+        # Spectral needs at least n_components + 2 nodes. A random fallback
+        # preserves the requested shape, including for two-node graphs.
+        if self.n_components >= n - 1:
+            low_dim = np.random.RandomState(seed).normal(scale=1e-4, size=(n, self.n_components))
+        else:
+            spectral = Spectral(self.n_components, random_state=seed)
+            low_dim = np.asarray(spectral.fit_transform(graph), dtype=np.float64)
 
         xv = np.linspace(0, self.spread * 3, 500)
         yv = np.zeros(xv.shape)
@@ -280,9 +300,6 @@ class UGAP(BaseEmbedding):
         # edge scheduler
         self.epoch_of_next_sample = np.copy(self.epochs_per_sample)
 
-        # generating seed
-        seed = int(self.random_state) % (2 ** 32) if isinstance(
-            self.random_state, (int, np.integer)) else 0
         # SGD
         self.embedding_ = np.asarray(sgd(self.n_components, self.n_epochs, n, graph.row, graph.col,
                                          low_dim, a, b, self.lr, self.negative_sampling_rate,
