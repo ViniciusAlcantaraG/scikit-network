@@ -10,7 +10,15 @@ from scipy import sparse
 
 from sknetwork.embedding import UGAP
 from sknetwork.embedding.sgd import sgd
-from sknetwork.embedding.ugap import _get_fuzzy_graph, _piteration_scores, _topk_memberships
+from sknetwork.embedding.ugap import (
+    _WORKER_STATE,
+    _fuzzy_batch,
+    _get_fuzzy_graph,
+    _init_worker,
+    _piteration_scores,
+    _topk_memberships,
+)
+from sknetwork.linalg import normalize
 from sknetwork.linalg.ppr_solver import RandomSurferOperator, get_pagerank
 from sknetwork.ranking import PageRank
 
@@ -174,6 +182,115 @@ class TestUGAP(unittest.TestCase):
             actual = _get_fuzzy_graph(graph, PageRank(n_iter=3), 4, model.n_jobs)
         self.assertEqual(pool.call_args.args[0], 2)
         assert_allclose(actual.toarray(), _get_fuzzy_graph(graph, PageRank(n_iter=3), 4, 1).toarray())
+
+    def test_init_worker_in_process(self):
+        graph = ring(6)
+        pagerank = PageRank(n_iter=3)
+        n = graph.shape[0]
+        transition_t = (pagerank.damping_factor * normalize(graph)).T.tocsr()
+        restart_scale = 1. - pagerank.damping_factor * graph.dot(np.ones(n)).astype(bool)
+        self.addCleanup(_WORKER_STATE.clear)
+        _init_worker(transition_t.indptr, transition_t.indices, transition_t.data,
+                     n, restart_scale, pagerank.n_iter, pagerank.tol, 4)
+        assert_allclose(_WORKER_STATE['transition_t'].toarray(), transition_t.toarray())
+        assert_allclose(_WORKER_STATE['restart_scale'], np.asarray(restart_scale))
+        self.assertEqual(_WORKER_STATE['n_iter'], pagerank.n_iter)
+        self.assertEqual(_WORKER_STATE['tol'], pagerank.tol)
+        self.assertEqual(_WORKER_STATE['n_neighbors'], 4)
+
+    def test_fuzzy_batch_in_process(self):
+        graph = ring(6)
+        pagerank = PageRank(n_iter=3)
+        n = graph.shape[0]
+        transition_t = (pagerank.damping_factor * normalize(graph)).T.tocsr()
+        restart_scale = 1. - pagerank.damping_factor * graph.dot(np.ones(n)).astype(bool)
+        self.addCleanup(_WORKER_STATE.clear)
+        _init_worker(transition_t.indptr, transition_t.indices, transition_t.data,
+                     n, restart_scale, pagerank.n_iter, pagerank.tol, 4)
+        sources = [0, 1, 5]
+        rows, cols, vals = _fuzzy_batch(sources)
+        expected_rows, expected_cols, expected_vals = [], [], []
+        for source in sources:
+            scores = _piteration_scores(transition_t, restart_scale, source,
+                                        pagerank.n_iter, pagerank.tol)
+            indices, memberships = _topk_memberships(scores, source, 4)
+            expected_rows.extend([source] * len(indices))
+            expected_cols.extend(indices)
+            expected_vals.extend(memberships)
+        self.assertEqual(rows, expected_rows)
+        self.assertEqual(cols, expected_cols)
+        assert_allclose(vals, expected_vals)
+        self.assertNotIn(0, [c for r, c in zip(rows, cols) if r == 0])
+
+        self.assertEqual(_fuzzy_batch([]), ([], [], []))
+
+        # Isolated node contributes no entries.
+        isolated = sparse.block_diag((ring(4), sparse.csr_matrix((1, 1))), format='csr')
+        n_iso = isolated.shape[0]
+        transition_iso = (pagerank.damping_factor * normalize(isolated)).T.tocsr()
+        restart_iso = 1. - pagerank.damping_factor * isolated.dot(np.ones(n_iso)).astype(bool)
+        _init_worker(transition_iso.indptr, transition_iso.indices, transition_iso.data,
+                     n_iso, restart_iso, pagerank.n_iter, pagerank.tol, 4)
+        rows, cols, vals = _fuzzy_batch([4])
+        # An isolated source may still reach others via restart; just check consistency
+        scores = _piteration_scores(transition_iso, restart_iso, 4,
+                                    pagerank.n_iter, pagerank.tol)
+        indices, memberships = _topk_memberships(scores, 4, 4)
+        self.assertEqual(rows, [4] * len(indices))
+        self.assertEqual(cols, indices)
+        assert_allclose(vals, memberships)
+        self.assertNotIn(4, cols)
+
+    def test_get_fuzzy_graph_parallel_in_process(self):
+        class DummyPool:
+            """Run Pool.map inline so coverage sees the parallel branch."""
+            def __init__(self, n_workers, initializer=None, initargs=()):
+                self.n_workers = n_workers
+                self.initializer = initializer
+                self.initargs = initargs
+
+            def __enter__(self):
+                if self.initializer is not None:
+                    self.initializer(*self.initargs)
+                return self
+
+            def __exit__(self, *args):
+                _WORKER_STATE.clear()
+                return False
+
+            def map(self, fn, chunks):
+                return [fn(chunk) for chunk in chunks]
+
+        self.addCleanup(_WORKER_STATE.clear)
+        graph = ring(8)
+        pagerank = PageRank(n_iter=3)
+        expected = _get_fuzzy_graph(graph, pagerank, 4, n_jobs=1)
+        with patch('sknetwork.embedding.ugap.PARALLEL_MIN_N', 5), \
+                patch('sknetwork.embedding.ugap.Pool', DummyPool):
+            actual = _get_fuzzy_graph(graph, pagerank, 4, n_jobs=2)
+        assert_allclose(actual.toarray(), expected.toarray(), atol=1e-14)
+
+        # n_jobs=-1 resolves worker count from cpu_count.
+        with patch('sknetwork.embedding.ugap.PARALLEL_MIN_N', 5), \
+                patch('sknetwork.embedding.ugap.os.cpu_count', return_value=2), \
+                patch('sknetwork.embedding.ugap.Pool', DummyPool) as pool_cls:
+            seen = {}
+            orig_init = pool_cls.__init__
+
+            def capture_init(pool_self, n_workers, initializer=None, initargs=()):
+                seen['n_workers'] = n_workers
+                orig_init(pool_self, n_workers, initializer, initargs)
+
+            with patch.object(pool_cls, '__init__', capture_init):
+                actual = _get_fuzzy_graph(graph, pagerank, 4, n_jobs=-1)
+        self.assertEqual(seen.get('n_workers'), 2)
+        assert_allclose(actual.toarray(), expected.toarray(), atol=1e-14)
+
+    def test_curve_fit_failure(self):
+        with patch('sknetwork.embedding.ugap.curve_fit',
+                   side_effect=RuntimeError('no fit')):
+            with self.assertRaisesRegex(ValueError, 'Failed to fit'):
+                UGAP(n_epochs=2, n_jobs=1).fit(ring(8))
 
     def test_sgd_attraction(self):
         points = np.array([[0., 0], [2., 1]])
